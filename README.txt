@@ -18,7 +18,7 @@ Author: VIP Software Technologies Inc.
 Author homepage: http://activeanalytics.com/
 Under GPL-3.0-License.txt or later
 
-*/Opt-Out/, /Tracker/ & AnonymizeIP.php:
+*/Opt-Out/, /Tracker/, /PrivacyManager/ & AnonymizeIP.php:
 Copyright (C) 2011  Matthieu Aubry
 Under the free software license GNU General Public License v3 or later.
 A copy of GNU GPL v3 have been included in GPL-3.0-License.txt.

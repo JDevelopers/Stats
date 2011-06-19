@@ -28,7 +28,7 @@
  * JSON - public domain reference implementation by Douglas Crockford
  * @link http://www.JSON.org/json2.js
  ************************************************************/
-/*jslint evil: true, strict: true, regexp: false */
+/*jslint evil: true, strict: true, regexp: false, type: true, bitwise: true */
 /*global JSON2 */
 /*members "", "\b", "\t", "\n", "\f", "\r", "\"", JSON2, "\\", apply,
     call, charCodeAt, getUTCDate, getUTCFullYear, getUTCHours,
@@ -367,8 +367,11 @@ if (!this.JSON2) {
  * end JSON
  ************************************************************/
 
-/*jslint browser:true, plusplus:false, onevar:false, strict:true, evil:true */
-/*global window unescape ActiveXObject _paq:true */
+/*jslint browser:true, plusplus:true, vars:true, dangling:true, nomen:true, strict:true, evil:true */
+/*global window */
+/*global unescape */
+/*global ActiveXObject */
+/*global _paq:true */
 /*members encodeURIComponent, decodeURIComponent,
 	shift, unshift,
 	addEventListener, attachEvent, removeEventListener, detachEvent,
@@ -387,7 +390,7 @@ if (!this.JSON2) {
 	pdf, qt, realp, wma, dir, fla, java, gears, ag,
 	hook, getHook, getVisitorId, getVisitorInfo, setTrackerUrl, setSiteId,
 	getAttributionInfo, getAttributionCampaignName, getAttributionCampaignKeyword, 
-	getAttributionReferrerTimestamp, getAttributionReferrerUrl
+	getAttributionReferrerTimestamp, getAttributionReferrerUrl,
 	setCustomData, getCustomData,
 	setCustomVariable, getCustomVariable, deleteCustomVariable,
 	setDownloadExtensions, addDownloadExtensions,
@@ -397,12 +400,12 @@ if (!this.JSON2) {
 	setCampaignNameKey, setCampaignKeywordKey,
 	discardHashTag,
 	setCookieNamePrefix, setCookieDomain, setCookiePath, setVisitorIdCookie,
-	setVisitorCookieTimeout, setSessionCookieTimeout, setReferralCookieTimeout
+	setVisitorCookieTimeout, setSessionCookieTimeout, setReferralCookieTimeout,
 	setConversionAttributionFirstReferrer,
 	doNotTrack, setDoNotTrack,
 	addListener, enableLinkTracking, setLinkTrackingTimer,
 	setHeartBeatTimer, killFrame, redirectFile,
-	trackGoal, trackLink, trackPageView,
+	trackGoal, trackLink, trackPageView, setEcommerceView, addEcommerceItem, trackEcommerceOrder, trackEcommerceCartUpdate,
 	addPlugin, getTracker, getAsyncTracker
 */
 var
@@ -691,7 +694,7 @@ var
 
 			documentAlias.cookie = cookieName + '=' + encodeWrapper(value) +
 				(msToExpire ? ';expires=' + expiryDate.toGMTString() : '') +
-				';path=' + (path ? path : '/') +
+				';path=' + (path || '/') +
 				(domain ? ';domain=' + domain : '') +
 				(secure ? ';secure' : '');
 		}
@@ -1001,15 +1004,18 @@ var
 				// Should cookies have the secure flag set
 				cookieSecure = documentAlias.location.protocol === 'https',
 
-				// Custom Variables read from cookie
+				// Custom Variables read from cookie, scope "visit" 
 				customVariables = false,
-
+				
+				// Custom Variables, scope "page"
+				customVariablesPage = {},
+				
 				// Custom Variables names and values are each truncated before being sent in the request or recorded in the cookie
 				customVariableMaximumLength = 100,
 
-				// Maximum number of custom variables
-				maxCustomVariables = 5,
-
+				// Ecommerce items
+				ecommerceItems = {},
+				
 				// Browser features via client-side data collection
 				browserFeatures = {},
 
@@ -1229,7 +1235,7 @@ var
 			 * Process all "activity" events.
 			 * For performance, this function must have low overhead.
 			 */
-			function activityHandler(evt) {
+			function activityHandler() {
 				var now = new Date();
 
 				lastActivityTime = now.getTime();
@@ -1239,8 +1245,8 @@ var
 			 * Sets the Visitor ID cookie: either the first time loadVisitorIdCookie is called
 			 * or when there is a new visit or a new page view 
 			 */
-			function setVisitorIdCookie(uuid, createTs, visitCount, nowTs, lastVisitTs) {
-				  setCookie(getCookieName('id'), uuid + '.' + createTs + '.' + visitCount + '.' + nowTs + '.' + lastVisitTs, configVisitorCookieTimeout, configCookiePath, configCookieDomain, cookieSecure);
+			function setVisitorIdCookie(uuid, createTs, visitCount, nowTs, lastVisitTs, lastEcommerceOrderTs) {
+				  setCookie(getCookieName('id'), uuid + '.' + createTs + '.' + visitCount + '.' + nowTs + '.' + lastVisitTs + '.' + lastEcommerceOrderTs, configVisitorCookieTimeout, configCookiePath, configCookieDomain, cookieSecure);
 			}
 			
 			/*
@@ -1285,6 +1291,9 @@ var
 						nowTs,
 
 						// last visit timestamp - blank = no previous visit
+						'',
+						
+						// last ecommerce order timestamp
 						''
 					];
 				}
@@ -1329,7 +1338,7 @@ var
 			 * with the standard parameters (plugins, resolution, url, referrer, etc.).
 			 * Sends the pageview and browser settings with every request in case of race conditions.
 			 */
-			function getRequest(request, customData, pluginMethod) {
+			function getRequest(request, customData, pluginMethod, currentEcommerceOrderTs) {
 				var i,
 					now = new Date(),
 					nowTs = Math.round(now.getTime() / 1000),
@@ -1339,6 +1348,7 @@ var
 					createTs,
 					currentVisitTs,
 					lastVisitTs,
+					lastEcommerceOrderTs,
 					referralTs,
 					referralUrl,
 					referralUrlMaxLength = 1024,
@@ -1370,6 +1380,15 @@ var
 				visitCount = id[3];
 				currentVisitTs = id[4];
 				lastVisitTs = id[5];
+				// case migrating from pre-1.5 cookies
+				if(!isDefined(id[6])) {
+					id[6] = "";
+				}
+				lastEcommerceOrderTs = id[6];
+				
+				if(!isDefined(currentEcommerceOrderTs)) {
+					currentEcommerceOrderTs = "";
+				}
 
 				campaignNameDetected = attributionCookie[0];
 				campaignKeywordDetected = attributionCookie[1];
@@ -1432,22 +1451,28 @@ var
 						setCookie(refname, JSON2.stringify(attributionCookie), configReferralCookieTimeout, configCookiePath, configCookieDomain, cookieSecure);
 					}
 				}
-
 				// build out the rest of the request
 				request += '&idsite=' + configTrackerSiteId +
 					'&rec=1' +
-					'&rand=' + Math.random() +
+					'&r=' + String(Math.random()).slice(2,8) + // keep the string to a minimum
 					'&h=' + now.getHours() + '&m=' + now.getMinutes() + '&s=' + now.getSeconds() +
 					'&url=' + encodeWrapper(purify(currentUrl)) +
-					'&urlref=' + encodeWrapper(purify(configReferrerUrl)) +
+					(configReferrerUrl.length ? '&urlref=' + encodeWrapper(purify(configReferrerUrl)) : '') +
 					'&_id=' + uuid + '&_idts=' + createTs + '&_idvc=' + visitCount + 
 					'&_idn=' + newVisitor + // currently unused
-					'&_rcn=' + encodeWrapper(campaignNameDetected) +
-					'&_rck=' + encodeWrapper(campaignKeywordDetected) +
+					(campaignNameDetected.length ? '&_rcn=' + encodeWrapper(campaignNameDetected) : '') +
+					(campaignKeywordDetected.length ? '&_rck=' + encodeWrapper(campaignKeywordDetected) : '') +
 					'&_refts=' + referralTs +
 					'&_viewts=' + lastVisitTs +
-					'&_ref=' + encodeWrapper(purify(referralUrl.slice(0, referralUrlMaxLength)))
+					(String(lastEcommerceOrderTs).length ? '&_ects=' + lastEcommerceOrderTs : '') +
+					(String(referralUrl).length ? '&_ref=' + encodeWrapper(purify(referralUrl.slice(0, referralUrlMaxLength))) : '')
 				;
+
+				// Custom Variables, scope "page"
+				var customVariablesPageStringified = JSON2.stringify(customVariablesPage);
+				if(customVariablesPageStringified.length > 2) {
+					request += '&cvar=' + encodeWrapper(customVariablesPageStringified);
+				}
 
 				// browser features
 				for (i in browserFeatures) {
@@ -1463,9 +1488,13 @@ var
 					request += '&data=' + encodeWrapper(JSON2.stringify(configCustomData));
 				}
 
-				// Don't send custom variables if empty
+				// Custom Variables, scope "visit"
 				if (customVariables) {
-					request += '&_cvar=' + encodeWrapper(JSON2.stringify(customVariables));
+					var customVariablesStringified = JSON2.stringify(customVariables);
+					// Don't sent empty custom variables {}
+					if(customVariablesStringified.length > 2) {
+						request += '&_cvar=' + encodeWrapper(customVariablesStringified);
+					}
 
 					// Don't save deleted custom variables in the cookie
 					for (i in customVariablesCopy) {
@@ -1480,7 +1509,7 @@ var
 				}
 
 				// update cookies
-				setVisitorIdCookie(uuid, createTs, visitCount, nowTs, lastVisitTs);
+				setVisitorIdCookie(uuid, createTs, visitCount, nowTs, lastVisitTs, isDefined(currentEcommerceOrderTs) && String(currentEcommerceOrderTs).length ? currentEcommerceOrderTs : lastEcommerceOrderTs);
 				setCookie(sesname, '*', configSessionCookieTimeout, configCookiePath, configCookieDomain, cookieSecure);
 
 				// tracker plugin hook
@@ -1488,7 +1517,76 @@ var
 
 				return request;
 			}
+			
+			function logEcommerce(orderId, grandTotal, subTotal, tax, shipping, discount) {
+				var request = 'idgoal=0', 
+					lastEcommerceOrderTs,
+					now = new Date(),
+					items = [],
+					sku;
+				
+				if(String(orderId).length) {
+					request += '&ec_id=' + encodeWrapper(orderId);
+					// Record date of order in the visitor cookie
+					lastEcommerceOrderTs = Math.round(now.getTime() / 1000);
+				}
+				
+				request += '&revenue=' + grandTotal;
+				if(String(subTotal).length) {
+					request += '&ec_st=' + subTotal;
+				}
+				if(String(tax).length) {
+					request += '&ec_tx=' + tax;
+				}
+				if(String(shipping).length) {
+					request += '&ec_sh=' + shipping;
+				}
+				if(String(discount).length) {
+					request += '&ec_dt=' + discount;
+				}
+				if(ecommerceItems) {
+					// Removing the SKU index in the array before JSON encoding
+					for(sku in ecommerceItems) {
+						if (Object.prototype.hasOwnProperty.call(ecommerceItems, sku)) {
+							// Ensure name and category default to healthy value
+							if(!isDefined(ecommerceItems[sku][1])) {
+								ecommerceItems[sku][1] = "";
+							}
+							if(!isDefined(ecommerceItems[sku][2])) {
+								ecommerceItems[sku][2] = "";
+							}
+							// Set price to zero
+							if(!isDefined(ecommerceItems[sku][3])
+								|| String(ecommerceItems[sku][3]).length === 0) {
+								ecommerceItems[sku][3] = 0;
+							}
+							// Set quantity to 1
+							if(!isDefined(ecommerceItems[sku][4])
+								|| String(ecommerceItems[sku][4]).length === 0) {
+								ecommerceItems[sku][4] = 1;
+							}
+							items.push(ecommerceItems[sku]);
+						}
+					}
+					request += '&ec_items=' + encodeWrapper(JSON2.stringify(items));
+				}
+				request = getRequest(request, configCustomData, 'ecommerce', lastEcommerceOrderTs);
+				sendRequest(request, configTrackerPause);
+			}
 
+			function logEcommerceOrder(orderId, grandTotal, subTotal, tax, shipping, discount) {
+				if(String(orderId).length
+					&& isDefined(grandTotal)) {
+					logEcommerce(orderId, grandTotal, subTotal, tax, shipping, discount);
+				}	
+			}
+
+			function logEcommerceCartUpdate(grandTotal) {
+				if(isDefined(grandTotal)) {
+					logEcommerce("", grandTotal, "", "", "", "");
+				}
+			}
+			
 			/*
 			 * Log the page view / visit
 			 */
@@ -1848,8 +1946,8 @@ var
 				 * To access specific data point, you should use the other functions getAttributionReferrer* and getAttributionCampaign*
 				 * 
 				 * @return array Attribution array, Example use:
-				 *               1) Call JSON2.stringify(piwikTracker.getAttributionInfo()) 
-				 *               2) Pass this json encoded string to the Tracking API (php or java client): setAttributionInfo()
+				 *   1) Call JSON2.stringify(piwikTracker.getAttributionInfo()) 
+				 *   2) Pass this json encoded string to the Tracking API (php or java client): setAttributionInfo()
 				 */
 				getAttributionInfo: function() {
 					return loadReferrerAttributionCookie();
@@ -1947,11 +2045,24 @@ var
 				 * @param int index
 				 * @param string name
 				 * @param string value
+				 * @param string scope Scope of Custom Variable: 
+				 *                     - "visit" will store the name/value in the visit and will persist it in the cookie for the duration of the visit,
+				 *                     - "page" will store the name/value in the page view.
 				 */
-				setCustomVariable: function (index, name, value) {
-					loadCustomVariables();
-					if (index > 0 && index <= maxCustomVariables) {
-						customVariables[index] = [name.slice(0, customVariableMaximumLength), value.slice(0, customVariableMaximumLength)];
+				setCustomVariable: function (index, name, value, scope) {
+					var toRecord;
+					if(!isDefined(scope)) {
+						scope = 'visit';
+					}
+					if (index > 0) {
+						toRecord = [name.slice(0, customVariableMaximumLength), value.slice(0, customVariableMaximumLength)];
+						if(scope === 'visit' || scope === 2 /* GA compatibility/misuse */) {
+							loadCustomVariables();
+							customVariables[index] = toRecord;
+						}
+						else if(scope === 'page' || scope === 3 /* GA compatibility/misuse */ ) {
+							customVariablesPage[index] = toRecord;
+						}
 					}
 				},
 
@@ -1959,16 +2070,25 @@ var
 				 * Get custom variable
 				 *
 				 * @param int index
+				 * @param string scope Scope of Custom Variable: "visit" or "page" 
 				 */
-				getCustomVariable: function (index) {
+				getCustomVariable: function (index, scope) {
 					var cvar;
-
-					loadCustomVariables();
-					cvar = customVariables[index];
-					if (cvar && cvar[0] === '') {
-						return;
+					if(!isDefined(scope)) {
+						scope = "visit";
 					}
-					return customVariables[index];
+					if(scope === "page" || scope === 3) {
+						cvar = customVariablesPage[index];
+					}
+					else if(scope === "visit" || scope === 2) {
+						loadCustomVariables();
+						cvar = customVariables[index];
+					}
+					if (!isDefined(cvar) 
+							|| (cvar && cvar[0] === '')) {
+						return false;
+					}
+					return cvar;
 				},
 
 				/**
@@ -1976,10 +2096,10 @@ var
 				 *
 				 * @param int index
 				 */
-				deleteCustomVariable: function (index) {
+				deleteCustomVariable: function (index, scope) {
 					// Only delete if it was there already
-					if (this.getCustomVariable(index)) {
-						this.setCustomVariable(index, '', '');
+					if (this.getCustomVariable(index, scope)) {
+						this.setCustomVariable(index, '', '', scope);
 					}
 				},
 
@@ -2292,7 +2412,83 @@ var
 				 */
 				trackPageView: function (customTitle, customData) {
 					logPageView(customTitle, customData);
+				},
+				
+
+			    /**
+			     * Used to record that the current page view is an item (product) page view, or a Ecommerce Category page view.
+			     * This must be called before trackPageView() on the product/category page. 
+			     * It will set 3 custom variables of scope "page" with the SKU, Name and Category for this page view.
+			     * Note: Custom Variables of scope "page" slots 3, 4 and 5 will be used.
+			     *  
+			     * On a category page, you can set the parameter category, and set the other parameters to empty string or false
+			     * 
+			     * Tracking Product/Category page views will allow Piwik to report on Product & Categories 
+			     * conversion rates (Conversion rate = Ecommerce orders containing this product or category / Visits to the product or category)
+			     * 
+			     * @param string sku Item's SKU code being viewed
+			     * @param string name Item's Name being viewed
+			     * @param string category Category page being viewed. On an Item's page, this is the item's category
+			     */
+				setEcommerceView: function(sku, name, category) {
+					if(isDefined(sku) && sku.length) {
+						customVariablesPage[3] = ['_pks', sku];
+					}
+					if(isDefined(name) && name.length) {
+						customVariablesPage[4] = ['_pkn', name];
+					}
+					if(isDefined(category) && category.length) {
+						customVariablesPage[5] = ['_pkc', category];
+					}
+				},
+				
+				/**
+				 * Adds an item (product) that is in the current Cart or in the Ecommerce order.
+				 * This function is called for every item (product) in the Cart or the Order. 
+				 * The only required parameter is sku.
+				 * 
+				 * @param string sku (required) Item's SKU Code. This is the unique identifier for the product.
+				 * @param string name (optional) Item's name
+				 * @param string name (optional) Item's category
+				 * @param float price (optional) Item's price. If not specified, will default to 0
+				 * @param float quantity (optional) Item's quantity. If not specified, will default to 1
+				 */
+				addEcommerceItem: function(sku, name, category, price, quantity) {
+					if(sku.length) {
+						ecommerceItems[sku] = [ sku, name, category, price, quantity ]; 
+					}
+				},
+				
+				/**
+				 * Tracks an Ecommerce order.
+				 * If the Ecommerce order contains items (products), you must call first the addEcommerceItem() for each item in the order.
+				 * All revenues (grandTotal, subTotal, tax, shipping, discount) will be individually summed and reported in Piwik reports.
+				 * Parameters orderId and grandTotal are required. For others, you can set to false if you don't need to specify them.
+				 * 
+				 * @param string|int orderId (required) Unique Order ID. 
+				 *                   This will be used to count this order only once in the event the order page is reloaded several times.
+				 *                   orderId must be unique for each transaction, even on different days, or the transaction will not be recorded by Piwik.
+				 * @param float grandTotal (required) Grand Total revenue of the transaction (including tax, shipping, etc.)
+				 * @param float subTotal (optional) Sub total amount, typically the sum of items prices for all items in this order (before Tax and Shipping costs are applied) 
+				 * @param float tax (optional) Tax amount for this order
+				 * @param float shipping (optional) Shipping amount for this order
+				 * @param float discount (optional) Discounted amount in this order
+				 */
+				trackEcommerceOrder: function(orderId, grandTotal, subTotal, tax, shipping, discount) {
+					logEcommerceOrder(orderId, grandTotal, subTotal, tax, shipping, discount);
+				},
+				
+				/**
+				 * Tracks a Cart Update (add item, remove item, update item).
+				 * On every Cart update, you must call addEcommerceItem() for each item (product) in the cart, including the items that haven't been updated since the last cart update.
+				 * Then you can call this function with the Cart grandTotal (typically the sum of all items' prices)
+				 * 
+				 * @param float grandTotal (required) Items (products) amount in the Cart
+				 */
+				trackEcommerceCartUpdate: function(grandTotal) {
+					logEcommerceCartUpdate(grandTotal);
 				}
+				
 			};
 		}
 

@@ -5,7 +5,7 @@
  *
  * @link http://dev.piwik.org/trac/browser/trunk/libs/UserAgentParser
  * @license http://www.opensource.org/licenses/bsd-license.php BSD License
- * @version $Id: UserAgentParser.php 4485 2011-04-16 19:53:31Z vipsoft $
+ * @version $Id: UserAgentParser.php 4832 2011-05-29 22:54:48Z matt $
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -265,7 +265,6 @@ class UserAgentParser
 			'Symbian OS'			=> 'SYM',
 			'SymbianOS'				=> 'SYM',
 
-			'Bada'					=> 'SBA',
 			'bada'					=> 'SBA',
 
 			'SunOS'					=> 'SOS',
@@ -301,7 +300,10 @@ class UserAgentParser
 	static private $init = false;
 	
 	/**
-	 * Returns a 3 letters ID for the operating system part, given a user agent string.
+	 * Returns an array of the OS for the submitted user agent 
+	 *		'id' => '',
+	 *		'name' => '',
+	 *		'short_name' => '',
 	 * 
 	 * @param string $userAgent
 	 * @return string false if OS couldn't be identified, or 3 letters ID (eg. WXP)
@@ -316,7 +318,7 @@ class UserAgentParser
 			'short_name' => '',
 		);
 		foreach(self::$operatingSystems as $key => $value) {
-			if (strstr($userAgent, $key) !== false) {
+			if (stristr($userAgent, $key) !== false) {
 				$info['id'] = $value;
 				break;
 			}
@@ -390,7 +392,9 @@ class UserAgentParser
 
 			// Netscape fix
 			if($info['id'] == 'MO' && $count == 0) {
-				if(strpos($userAgent, 'PlayStation Portable') !== false)  return false;
+				if(stripos($userAgent, 'PlayStation') !== false) {
+					return false;
+				}
 				if(count($results) == 4) {
 				 	$info['id'] = 'NS';
 				}
