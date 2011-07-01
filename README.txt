@@ -8,6 +8,10 @@ Copyright 2010  Matthieu Aubry
 All rights reserved.
 Under Simplified-BSD-License.txt
 
+*Click_tracking_client.js:
+Yvan Taviaud - LabsMedia
+Under GPL-3.0-License.txt or later
+
 *UserAgentParser.php:
 Copyright 2009, 2010  Matthieu Aubry
 All rights reserved.
